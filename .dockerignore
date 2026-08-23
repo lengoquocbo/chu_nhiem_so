@@ -1,8 +1,0 @@
-node_modules
-.next
-.git
-prisma/dev.db
-*.log
-.env
-test-results
-playwright-report
