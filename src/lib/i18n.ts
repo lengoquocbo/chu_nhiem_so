@@ -1,0 +1,4 @@
+import vi from "../../messages/vi.json";import en from "../../messages/en.json";
+export type Locale="vi"|"en";const dictionaries={vi,en};
+export function t(locale:Locale,path:string){let value:unknown=dictionaries[locale];for(const key of path.split("."))value=(value as Record<string,unknown>)?.[key];if(typeof value==="string")return value;let fallback:unknown=vi;for(const key of path.split("."))fallback=(fallback as Record<string,unknown>)?.[key];return typeof fallback==="string"?fallback:path;}
+export const statusVi:Record<string,string>={PRESENT:"Có mặt",ABSENT_EXCUSED:"Vắng có phép",ABSENT_UNEXCUSED:"Vắng không phép",LATE:"Đi muộn",LEFT_EARLY:"Về sớm",NOT_MARKED:"Chưa điểm danh",PENDING:"Chờ duyệt",APPROVED:"Đã duyệt",REJECTED:"Bị từ chối",CANCELLED:"Đã hủy",OPEN:"Đang mở",REVIEWING:"Đang rà soát",FINALIZED:"Đã chốt",REOPENED:"Đã mở lại",BONUS:"Cộng điểm",PENALTY:"Trừ điểm"};

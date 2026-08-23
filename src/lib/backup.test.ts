@@ -1,0 +1,4 @@
+import { describe, expect, it } from "vitest";
+import { isSafeBackupName } from "./backup";
+import { createStoredZip, crc32 } from "./zip";
+describe("sao lưu và gói xuất dữ liệu", () => { it("chỉ chấp nhận tên backup do hệ thống tạo", () => { expect(isSafeBackupName("chu-nhiem-so-20260814-120000.db")).toBe(true); expect(isSafeBackupName("../chu-nhiem-so-20260814-120000.db")).toBe(false); expect(isSafeBackupName("dev.db")).toBe(false); }); it("tạo ZIP UTF-8 có local header và central directory", () => { const data = Buffer.from("Điểm danh tiếng Việt", "utf8"); const zip = createStoredZip([{ name: "dữ-liệu.json", data }]); expect(zip.readUInt32LE(0)).toBe(0x04034b50); expect(zip.includes(Buffer.from("dữ-liệu.json", "utf8"))).toBe(true); expect(zip.includes(data)).toBe(true); expect(zip.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06]))).toBe(true); }); it("CRC32 ổn định", () => { expect(crc32(Buffer.from("123456789"))).toBe(0xcbf43926); }); });

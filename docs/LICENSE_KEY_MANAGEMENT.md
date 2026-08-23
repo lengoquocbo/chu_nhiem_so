@@ -1,0 +1,3 @@
+# Quản lý khóa license
+
+Private key chỉ nằm trên máy phát hành, ngoài repository và ngoài gói khách hàng. Sao lưu ít nhất hai bản ngoại tuyến được mã hóa/bảo vệ quyền truy cập. Không gửi qua email/Zalo thông thường, không lưu Git hoặc OneDrive không được mã hóa. Mất private key đồng nghĩa không thể tiếp tục ký với danh tính khóa cũ. Public key fingerprint phải được ghi trong biên bản phát hành. Khi đổi khóa, ứng dụng cần giai đoạn hỗ trợ đồng thời khóa cũ/mới; khóa lộ phải bị thu hồi bằng bản cập nhật đáng tin cậy.

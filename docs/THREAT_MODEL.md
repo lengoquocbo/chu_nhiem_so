@@ -1,0 +1,3 @@
+# Threat model
+
+Tài sản: hồ sơ học sinh/phụ huynh, điểm danh, thi đua, báo cáo và tài khoản. Tác nhân: người ngoài, tài khoản bị chiếm, thành viên vượt quyền, tenant khác, file độc hại. Rủi ro chính: IDOR/cross-tenant, brute force, session theft, CSRF, XSS, upload độc hại, URL báo cáo lộ, log lộ PII, migration/backup sai. Kiểm soát hiện có: cookie HttpOnly/SameSite, bcrypt, Zod, class scope, audit, no-store, security headers. Khoảng trống: Redis rate limit, CSP nonce, malware scan, object storage signed URL, MFA/admin, test tenant toàn diện.

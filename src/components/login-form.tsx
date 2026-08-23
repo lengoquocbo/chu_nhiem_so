@@ -1,0 +1,5 @@
+"use client";
+import { useActionState } from "react";
+import { LogIn } from "lucide-react";
+import { login } from "@/app/actions";
+export function LoginForm() { const [state, action, pending] = useActionState(login, null); return <form action={action} className="space-y-5"><label><span className="mb-2 block font-semibold">Tên đăng nhập hoặc email</span><input name="identifier" className="input" autoComplete="username" required /></label><label><span className="mb-2 block font-semibold">Mật khẩu</span><input name="password" type="password" className="input" autoComplete="current-password" required minLength={8} /></label>{state?.error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{state.error}</p>}<button type="submit" disabled={pending} className="btn btn-primary w-full"><LogIn size={18} />{pending ? "Đang đăng nhập…" : "Đăng nhập"}</button></form>; }

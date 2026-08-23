@@ -1,0 +1,3 @@
+"use client";
+import { useState } from "react";
+export function InstallationCode({ value }: { value: string }) { const [copied, setCopied] = useState(false); async function copy() { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } return <div className="flex flex-wrap items-center gap-3"><code className="rounded-lg bg-slate-100 px-3 py-2 font-bold tracking-wide">{value}</code><button type="button" className="btn btn-soft" onClick={copy}>{copied ? "Đã sao chép" : "Sao chép mã"}</button></div>; }

@@ -1,0 +1,8 @@
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { mkdir, readFile, rename, copyFile, writeFile, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { parseLicense, type SignedLicense } from "./core";
+export interface LicenseStorage { read(): Promise<SignedLicense | null>; replaceAtomic(content: string): Promise<void>; backup(): Promise<string | null> }
+export function getLicenseDataDirectory() { return process.env.CHU_NHIEM_SO_DATA_DIR || (process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "ChuNhiemSo")) || join(homedir(), ".chu-nhiem-so"); }
+export class FileLicenseStorage implements LicenseStorage { constructor(readonly file = join(getLicenseDataDirectory(), "license", "current.license")) {} async read() { try { return parseLicense(await readFile(this.file, "utf8")); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; } } async backup() { try { const target = `${this.file}.previous`; await copyFile(this.file, target); return target; } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; } } async replaceAtomic(content: string) { const parsed = parseLicense(content); if (!parsed.signature) throw new Error("Tệp license không có chữ ký."); await mkdir(dirname(this.file), { recursive: true }); const temporary = `${this.file}.${randomUUID()}.tmp`; await writeFile(temporary, JSON.stringify(parsed, null, 2), { encoding: "utf8", flag: "wx" }); try { await this.backup(); await rename(temporary, this.file); } catch (error) { await unlink(temporary).catch(() => {}); throw error; } } }

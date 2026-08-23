@@ -1,0 +1,5 @@
+export function validDateRange(start: Date, end: Date) { return Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && end > start; }
+export function semesterWithinYear(semesterStart: Date, semesterEnd: Date, yearStart: Date, yearEnd: Date) { return validDateRange(semesterStart, semesterEnd) && semesterStart >= yearStart && semesterEnd <= yearEnd; }
+export function rangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) { return aStart <= bEnd && bStart <= aEnd; }
+export function appointmentIsActive(start: Date, end: Date | null, active: boolean, now = new Date()) { return active && start <= now && (!end || end >= now); }
+export function appointmentConflicts(existing: Array<{role:string;teamId:string|null;startDate:Date;endDate:Date|null;active:boolean}>, candidate:{role:string;teamId:string|null;startDate:Date;endDate:Date|null}) { return existing.some(a => a.active && a.role===candidate.role && (candidate.role!=="TEAM_LEADER" || a.teamId===candidate.teamId) && rangesOverlap(a.startDate,a.endDate??new Date("9999-12-31"),candidate.startDate,candidate.endDate??new Date("9999-12-31"))); }

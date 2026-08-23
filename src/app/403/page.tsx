@@ -1,0 +1,1 @@
+import Link from"next/link";export default function Forbidden(){return <main className="flex min-h-screen items-center justify-center p-6"><div className="text-center"><p className="text-7xl font-black text-[#087f8c]">403</p><h1 className="mt-3 text-2xl font-bold">Bạn không có quyền truy cập</h1><Link className="btn btn-primary mt-5" href="/">Về tổng quan</Link></div></main>}

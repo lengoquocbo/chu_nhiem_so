@@ -1,0 +1,33 @@
+import ExcelJS from "exceljs";
+import { currentUser, isTeacher } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { statusVi } from "@/lib/i18n";
+export const dynamic = "force-dynamic";
+export async function GET() {
+  const user = await currentUser();
+  if (!user || !isTeacher(user.role) || !user.classId) return Response.json({ message: "Bạn không có quyền tải báo cáo này." }, { status: 403 });
+  const week = await db.competitionWeek.findFirst({ where: { classId: user.classId, status: "FINALIZED" }, orderBy: { finalizedAt: "desc" }, include: { classroom: { include: { school: true, teams: true } }, results: { include: { student: { include: { team: true } } } }, events: { include: { student: true, team: true, ruleItem: true } }, sessions: { include: { records: { include: { student: true } } } }, adjustments: { include: { student: true } } } });
+  if (!week) return Response.json({ message: "Chưa có tuần đã chốt." }, { status: 404 });
+  const workbook = new ExcelJS.Workbook(); workbook.creator = `Chủ Nhiệm Số · ${user.name}`; workbook.created = new Date();
+  const overview = workbook.addWorksheet("01_Tổng_quan");
+  const students = workbook.addWorksheet("02_Xếp_hạng_học_sinh");
+  const teams = workbook.addWorksheet("03_Xếp_hạng_tổ");
+  const attendance = workbook.addWorksheet("04_Điểm_danh");
+  const penalties = workbook.addWorksheet("05_Sự_việc");
+  const bonuses = workbook.addWorksheet("06_Hành_động_tốt");
+  const adjustments = workbook.addWorksheet("07_Điều_chỉnh");
+  const audit = workbook.addWorksheet("08_Nhật_ký");
+  const reportCode = `CNS-W${week.number}-${Date.now()}`;
+  overview.addRows([["CHỦ NHIỆM SỐ — BÁO CÁO TUẦN"],["Mã báo cáo",reportCode],["Trường",week.classroom.school.name],["Lớp",week.classroom.name],["Tuần",week.number],["Người tạo",user.name],["Thời gian tạo",new Date().toLocaleString("vi-VN")]]);
+  students.addRow(["Hạng","Mã học sinh","Họ và tên","Tổ","Điểm cộng","Điểm trừ","Điều chỉnh","Điểm cuối","Xếp loại"]);
+  [...week.results].sort((a,b)=>a.rank-b.rank).forEach(r=>students.addRow([r.rank,r.student.code,r.student.fullName,r.student.team?.name??"Chưa phân tổ",r.bonus,r.penalty,r.adjustment,r.finalScore,r.grade]));
+  teams.addRow(["Tổ","Số thành viên","Điểm trung bình"]); week.classroom.teams.forEach(team=>{const rows=week.results.filter(r=>r.student.teamId===team.id);const average=rows.length?rows.reduce((sum,r)=>sum+r.finalScore,0)/rows.length:0;teams.addRow([team.name,rows.length,Number(average.toFixed(2))])});
+  attendance.addRow(["Ngày","Buổi","Mã học sinh","Họ và tên","Trạng thái","Lý do"]); week.sessions.forEach(session=>session.records.forEach(record=>attendance.addRow([session.date.toLocaleDateString("vi-VN"),session.period,record.student.code,record.student.fullName,statusVi[record.status]??record.status,record.reason??""])));
+  const eventHeader=["Ngày","Học sinh/Tổ","Tiêu chí","Nội dung","Điểm","Trạng thái"]; penalties.addRow(eventHeader);bonuses.addRow(eventHeader);week.events.forEach(event=>{const sheet=event.ruleItem.type==="BONUS"?bonuses:penalties;sheet.addRow([event.occurredAt.toLocaleDateString("vi-VN"),event.student?.fullName??event.team?.name??"Tập thể",event.ruleItem.name,event.description,event.approvedPoints??event.proposedPoints,statusVi[event.status]??event.status])});
+  adjustments.addRow(["Học sinh","Điểm","Lý do","Thời gian"]); week.adjustments.forEach(item=>adjustments.addRow([item.student.fullName,item.points,item.reason,item.createdAt.toLocaleString("vi-VN")]));
+  audit.addRow(["Mã báo cáo","Người tải","Thời gian","Tuần"]);audit.addRow([reportCode,user.name,new Date().toLocaleString("vi-VN"),week.number]);
+  workbook.eachSheet(sheet=>{sheet.getRow(1).font={bold:true,color:{argb:"FF087F8C"}};sheet.columns.forEach(column=>column.width=24);sheet.views=[{state:"frozen",ySplit:1}]});
+  await db.auditLog.create({data:{userId:user.id,action:"DOWNLOAD_REPORT",entityType:"Report",classId:user.classId,after:{weekId:week.id,reportCode}}});
+  const bytes=await workbook.xlsx.writeBuffer();
+  return new Response(bytes as BodyInit,{headers:{"Content-Type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","Content-Disposition":`attachment; filename="bao-cao-tuan-${week.number}.xlsx"`,"Cache-Control":"no-store"}});
+}

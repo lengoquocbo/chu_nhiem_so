@@ -1,0 +1,4 @@
+import { redirect } from "next/navigation";
+import { db } from "@/lib/db";
+import { SetupForm } from "./setup-form";
+export default async function Page() { if (await db.user.findFirst({ where: { role: "SYSTEM_ADMIN" } })) redirect("/dang-nhap"); const teachers = await db.user.findMany({ where: { role: "TEACHER", active: true }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }); return <main className="min-h-screen bg-slate-50 p-5"><div className="mx-auto mb-6 max-w-2xl"><p className="font-bold text-teal-700">CHỦ NHIỆM SỐ</p><h1 className="mt-2 text-3xl font-extrabold">Thiết lập quản trị viên đầu tiên</h1><p className="mt-2 text-slate-600">Chỉ thực hiện một lần. Nếu đã có dữ liệu, hãy xác nhận đúng tài khoản giáo viên hiện có để giữ nguyên toàn bộ dữ liệu.</p></div><SetupForm teachers={teachers} /></main>; }

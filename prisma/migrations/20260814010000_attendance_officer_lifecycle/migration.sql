@@ -1,0 +1,17 @@
+ALTER TABLE "ClassSession" ADD COLUMN "createdAt" DATETIME NOT NULL DEFAULT '2026-08-14 00:00:00';
+ALTER TABLE "ClassSession" ADD COLUMN "lockedAt" DATETIME;
+ALTER TABLE "AttendanceRecord" ADD COLUMN "note" TEXT;
+ALTER TABLE "AttendanceRecord" ADD COLUMN "recordedBy" TEXT;
+ALTER TABLE "AttendanceRecord" ADD COLUMN "updatedBy" TEXT;
+ALTER TABLE "AttendanceRecord" ADD COLUMN "recordedAt" DATETIME NOT NULL DEFAULT '2026-08-14 00:00:00';
+ALTER TABLE "AttendanceRecord" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT '2026-08-14 00:00:00';
+ALTER TABLE "ClassOfficerAppointment" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'ACTIVE';
+ALTER TABLE "ClassOfficerAppointment" ADD COLUMN "revokedAt" DATETIME;
+ALTER TABLE "ClassOfficerAppointment" ADD COLUMN "revokedBy" TEXT;
+ALTER TABLE "ClassOfficerAppointment" ADD COLUMN "revokeReason" TEXT;
+ALTER TABLE "ClassOfficerAppointment" ADD COLUMN "previousAppointmentId" TEXT;
+ALTER TABLE "ClassOfficerAppointment" ADD COLUMN "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "ClassOfficerAppointment" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT '2026-08-14 00:00:00';
+UPDATE "ClassOfficerAppointment" SET "status" = CASE WHEN "active" = 0 THEN 'REVOKED' WHEN "endDate" IS NOT NULL AND "endDate" < CURRENT_TIMESTAMP THEN 'EXPIRED' WHEN "startDate" > CURRENT_TIMESTAMP THEN 'SCHEDULED' ELSE 'ACTIVE' END;
+CREATE INDEX "ClassOfficerAppointment_classId_status_idx" ON "ClassOfficerAppointment"("classId","status");
+CREATE INDEX "AttendanceRecord_studentId_status_idx" ON "AttendanceRecord"("studentId","status");

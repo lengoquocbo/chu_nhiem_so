@@ -1,0 +1,3 @@
+# Triển khai
+
+Hiện chỉ hỗ trợ local development. Dockerfile nhiều giai đoạn và docker-compose development đã được thêm nhưng chưa được chạy vì máy chưa có Docker. Production cần PostgreSQL, Redis, object storage private, HTTPS/reverse proxy và secret manager. Quy trình dự kiến: backup → chạy migration trên staging → smoke/E2E → promote cùng một image → readiness → theo dõi → rollback image nếu lỗi. Không chạy seed development ở production.

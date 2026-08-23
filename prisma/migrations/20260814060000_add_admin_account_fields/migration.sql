@@ -1,0 +1,11 @@
+ALTER TABLE "User" ADD COLUMN "username" TEXT;
+ALTER TABLE "User" ADD COLUMN "active" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "User" ADD COLUMN "mustChangePassword" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "User" ADD COLUMN "lastLoginAt" DATETIME;
+CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
+CREATE TABLE "SystemSetting" (
+  "key" TEXT NOT NULL PRIMARY KEY,
+  "value" TEXT NOT NULL,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" DATETIME NOT NULL
+);

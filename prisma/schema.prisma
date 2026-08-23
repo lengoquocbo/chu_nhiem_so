@@ -1,0 +1,549 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SYSTEM_ADMIN
+  TEACHER
+  CLASS_MONITOR
+  ACADEMIC_VICE_MONITOR
+  DISCIPLINE_VICE_MONITOR
+  TEAM_LEADER
+  STUDENT
+  GUARDIAN
+}
+
+enum StudentStatus {
+  ACTIVE
+  TRANSFERRED
+  RESERVED
+  WITHDRAWN
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT_EXCUSED
+  ABSENT_UNEXCUSED
+  LATE
+  LEFT_EARLY
+  NOT_MARKED
+}
+
+enum EventStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum WeekStatus {
+  OPEN
+  REVIEWING
+  FINALIZED
+  REOPENED
+}
+
+enum EventType {
+  BONUS
+  PENALTY
+}
+
+enum AppointmentStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum RuleSetStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model User {
+  id           String                    @id @default(cuid())
+  email              String                    @unique
+  username           String?                   @unique
+  passwordHash       String
+  name               String
+  role               Role
+  active             Boolean                   @default(true)
+  mustChangePassword Boolean                   @default(false)
+  lastLoginAt        DateTime?
+  locale             String                    @default("vi")
+  schoolId     String?
+  classId      String?
+  teamId       String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  events       CompetitionEvent[]        @relation("EventCreator")
+  audits       AuditLog[]
+  appointments ClassOfficerAppointment[] @relation("AppointedUser")
+  memberships  ClassMembership[]
+}
+
+model School {
+  id         String       @id @default(cuid())
+  name       String
+  code       String       @unique
+  status     String       @default("ACTIVE")
+  archivedAt DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  years      SchoolYear[]
+  classes    Classroom[]
+}
+
+model SchoolYear {
+  id         String     @id @default(cuid())
+  name       String
+  schoolId   String
+  startDate  DateTime   @default(now())
+  endDate    DateTime?
+  isActive   Boolean    @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  school     School     @relation(fields: [schoolId], references: [id])
+  semesters  Semester[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId, isActive])
+}
+
+model Semester {
+  id           String      @id @default(cuid())
+  name         String
+  schoolYearId String
+  startDate    DateTime
+  endDate      DateTime
+  archivedAt   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  schoolYear   SchoolYear  @relation(fields: [schoolYearId], references: [id])
+  classes      Classroom[]
+
+  @@unique([schoolYearId, name])
+  @@index([schoolYearId, startDate, endDate])
+}
+
+model Classroom {
+  id            String                    @id @default(cuid())
+  name          String
+  grade         String                    @default("8")
+  schoolId      String
+  semesterId    String
+  teacherName   String
+  status        String                    @default("ACTIVE")
+  archivedAt    DateTime?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  school        School                    @relation(fields: [schoolId], references: [id])
+  semester      Semester                  @relation(fields: [semesterId], references: [id])
+  teams         Team[]
+  students      Student[]
+  weeks         CompetitionWeek[]
+  ruleSets      RuleSet[]
+  tasks         Task[]
+  appointments  ClassOfficerAppointment[]
+  teamTransfers TeamTransferHistory[]
+  memberships   ClassMembership[]
+  transfersFrom ClassTransferHistory[]    @relation("PreviousClass")
+  transfersTo   ClassTransferHistory[]    @relation("NewClass")
+
+  @@unique([semesterId, name])
+  @@index([schoolId, status])
+}
+
+model Team {
+  id            String                    @id @default(cuid())
+  name          String
+  classId       String
+  archivedAt    DateTime?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  classroom     Classroom                 @relation(fields: [classId], references: [id])
+  students      Student[]
+  events        CompetitionEvent[]
+  transfersFrom TeamTransferHistory[]     @relation("PreviousTeam")
+  transfersTo   TeamTransferHistory[]     @relation("NewTeam")
+  appointments  ClassOfficerAppointment[]
+
+  @@unique([classId, name])
+  @@index([classId, archivedAt])
+}
+
+model Student {
+  id             String                    @id @default(cuid())
+  code           String
+  fullName       String
+  birthDate      DateTime?
+  gender         String?
+  ordinal        Int
+  status         StudentStatus             @default(ACTIVE)
+  note           String?
+  classId        String
+  teamId         String?
+  classroom      Classroom                 @relation(fields: [classId], references: [id])
+  team           Team?                     @relation(fields: [teamId], references: [id])
+  guardians      StudentGuardian[]
+  attendance     AttendanceRecord[]
+  events         CompetitionEvent[]
+  adjustments    ScoreAdjustment[]
+  results        StudentWeeklyResult[]
+  deletedAt      DateTime?
+  teamTransfers  TeamTransferHistory[]
+  appointments   ClassOfficerAppointment[]
+  classTransfers ClassTransferHistory[]
+
+  @@unique([classId, code])
+  @@index([classId, teamId])
+}
+
+model Guardian {
+  id            String            @id @default(cuid())
+  name          String
+  phone         String?
+  email         String?
+  relationships StudentGuardian[]
+  archivedAt    DateTime?
+}
+
+model TeamTransferHistory {
+  id             String    @id @default(cuid())
+  studentId      String
+  classId        String
+  previousTeamId String?
+  newTeamId      String
+  reason         String
+  changedBy      String
+  changedAt      DateTime  @default(now())
+  student        Student   @relation(fields: [studentId], references: [id])
+  classroom      Classroom @relation(fields: [classId], references: [id])
+  previousTeam   Team?     @relation("PreviousTeam", fields: [previousTeamId], references: [id])
+  newTeam        Team      @relation("NewTeam", fields: [newTeamId], references: [id])
+
+  @@index([studentId, changedAt])
+  @@index([classId])
+}
+
+model ClassOfficerAppointment {
+  id                    String            @id @default(cuid())
+  studentId             String
+  userId                String?
+  classId               String
+  teamId                String?
+  role                  Role
+  startDate             DateTime
+  endDate               DateTime?
+  active                Boolean           @default(true)
+  status                AppointmentStatus @default(ACTIVE)
+  appointedBy           String
+  revokedAt             DateTime?
+  revokedBy             String?
+  revokeReason          String?
+  previousAppointmentId String?
+  version               Int               @default(1)
+  note                  String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  student               Student           @relation(fields: [studentId], references: [id])
+  user                  User?             @relation("AppointedUser", fields: [userId], references: [id])
+  classroom             Classroom         @relation(fields: [classId], references: [id])
+  team                  Team?             @relation(fields: [teamId], references: [id])
+
+  @@index([classId, role, active])
+  @@index([classId, status])
+  @@index([studentId])
+}
+
+model StudentGuardian {
+  studentId  String
+  guardianId String
+  relation   String
+  isPrimary  Boolean  @default(false)
+  student    Student  @relation(fields: [studentId], references: [id])
+  guardian   Guardian @relation(fields: [guardianId], references: [id])
+
+  @@id([studentId, guardianId])
+}
+
+model RuleSet {
+  id           String            @id @default(cuid())
+  name         String
+  version      Int
+  classId      String
+  startDate    DateTime
+  endDate      DateTime?
+  initialScore Int               @default(100)
+  status       RuleSetStatus     @default(DRAFT)
+  classroom    Classroom         @relation(fields: [classId], references: [id])
+  items        RuleItem[]
+  weeks        CompetitionWeek[]
+
+  @@unique([classId, version])
+}
+
+model RuleItem {
+  id               String             @id @default(cuid())
+  code             String
+  name             String
+  category         String
+  type             EventType
+  points           Int
+  evidenceRequired Boolean            @default(false)
+  dailyLimit       Int?
+  weeklyLimit      Int?
+  active           Boolean            @default(true)
+  ruleSetId        String
+  ruleSet          RuleSet            @relation(fields: [ruleSetId], references: [id])
+  events           CompetitionEvent[]
+
+  @@unique([ruleSetId, code])
+}
+
+model CompetitionWeek {
+  id          String                @id @default(cuid())
+  number      Int
+  startDate   DateTime
+  endDate     DateTime
+  status      WeekStatus            @default(OPEN)
+  classId     String
+  ruleSetId   String
+  finalizedAt DateTime?
+  finalizedBy String?
+  reopenedAt  DateTime?
+  reopenedBy  String?
+  reopenReason String?
+  initialScore Int                   @default(100)
+  version     Int                   @default(1)
+  classroom   Classroom             @relation(fields: [classId], references: [id])
+  ruleSet     RuleSet               @relation(fields: [ruleSetId], references: [id])
+  sessions    ClassSession[]
+  events      CompetitionEvent[]
+  adjustments ScoreAdjustment[]
+  results     StudentWeeklyResult[]
+  snapshots   CompetitionWeekSnapshot[]
+
+  @@unique([classId, number, version])
+  @@index([classId, startDate, endDate])
+}
+
+model ClassSession {
+  id        String             @id @default(cuid())
+  date      DateTime
+  period    String
+  classId   String
+  weekId    String
+  createdBy String?
+  createdAt DateTime           @default(now())
+  lockedAt  DateTime?
+  week      CompetitionWeek    @relation(fields: [weekId], references: [id])
+  records   AttendanceRecord[]
+
+  @@unique([classId, date, period])
+}
+
+model AttendanceRecord {
+  id         String            @id @default(cuid())
+  sessionId  String
+  studentId  String
+  status     AttendanceStatus  @default(NOT_MARKED)
+  reason     String?
+  note       String?
+  recordedBy String?
+  updatedBy  String?
+  recordedAt DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  approved   Boolean           @default(false)
+  session    ClassSession      @relation(fields: [sessionId], references: [id])
+  student    Student           @relation(fields: [studentId], references: [id])
+  event      CompetitionEvent?
+
+  @@unique([sessionId, studentId])
+  @@index([studentId, status])
+}
+
+model CompetitionEvent {
+  id                 String            @id @default(cuid())
+  weekId             String
+  studentId          String?
+  teamId             String?
+  ruleItemId         String
+  attendanceId       String?           @unique
+  occurredAt         DateTime
+  quantity           Int               @default(1)
+  proposedPoints     Int
+  approvedPoints     Int?
+  description        String
+  status             EventStatus       @default(PENDING)
+  duplicateSuspected Boolean           @default(false)
+  creatorId          String
+  approvedBy         String?
+  approvedAt         DateTime?
+  rejectionReason    String?
+  week               CompetitionWeek   @relation(fields: [weekId], references: [id])
+  student            Student?          @relation(fields: [studentId], references: [id])
+  team               Team?             @relation(fields: [teamId], references: [id])
+  ruleItem           RuleItem          @relation(fields: [ruleItemId], references: [id])
+  attendance         AttendanceRecord? @relation(fields: [attendanceId], references: [id])
+  creator            User              @relation("EventCreator", fields: [creatorId], references: [id])
+
+  @@index([weekId, status])
+}
+
+model ScoreAdjustment {
+  id        String          @id @default(cuid())
+  weekId    String
+  studentId String
+  points    Int
+  reason    String
+  createdBy String
+  createdAt DateTime        @default(now())
+  week      CompetitionWeek @relation(fields: [weekId], references: [id])
+  student   Student         @relation(fields: [studentId], references: [id])
+}
+
+model StudentWeeklyResult {
+  id         String          @id @default(cuid())
+  weekId     String
+  studentId  String
+  bonus      Int
+  penalty    Int
+  adjustment Int
+  finalScore Int
+  rank       Int
+  grade      String
+  snapshot   Json
+  week       CompetitionWeek @relation(fields: [weekId], references: [id])
+  student    Student         @relation(fields: [studentId], references: [id])
+
+  @@unique([weekId, studentId])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  description String
+  assignee    String
+  priority    String
+  status      String
+  dueDate     DateTime
+  classId     String
+  classroom   Classroom @relation(fields: [classId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  classId   String
+  title     String
+  content   String
+  channel   String   @default("IN_APP")
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  schoolId   String?
+  classId    String?
+  before     Json?
+  after      Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([classId, createdAt])
+}
+
+enum PermissionScope {
+  SELF
+  TEAM
+  CLASS
+}
+
+model ClassMembership {
+  id        String    @id @default(cuid())
+  userId    String
+  classId   String
+  role      Role
+  active    Boolean   @default(true)
+  startDate DateTime  @default(now())
+  endDate   DateTime?
+  user      User      @relation(fields: [userId], references: [id])
+  classroom Classroom @relation(fields: [classId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, classId, role])
+  @@index([classId, active])
+}
+
+model ClassTransferHistory {
+  id              String    @id @default(cuid())
+  studentId       String
+  previousClassId String
+  newClassId      String
+  reason          String
+  changedBy       String
+  changedAt       DateTime  @default(now())
+  student         Student   @relation(fields: [studentId], references: [id])
+  previousClass   Classroom @relation("PreviousClass", fields: [previousClassId], references: [id])
+  newClass        Classroom @relation("NewClass", fields: [newClassId], references: [id])
+
+  @@index([studentId, changedAt])
+  @@index([previousClassId])
+  @@index([newClassId])
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  description String
+  createdAt   DateTime         @default(now())
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  id           String          @id @default(cuid())
+  role         Role
+  permissionId String
+  scope        PermissionScope
+  permission   Permission      @relation(fields: [permissionId], references: [id])
+  createdAt    DateTime        @default(now())
+
+  @@unique([role, permissionId])
+  @@index([role, scope])
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model CompetitionWeekSnapshot {
+  id        String          @id @default(cuid())
+  weekId    String
+  version   Int
+  data      Json
+  reason    String?
+  createdBy String
+  createdAt DateTime        @default(now())
+  week      CompetitionWeek @relation(fields: [weekId], references: [id])
+
+  @@unique([weekId, version])
+  @@index([weekId, createdAt])
+}
