@@ -1,7 +1,0 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { getLicenseDataDirectory } from "./storage";
-const ID_PATTERN = /^CNS-[A-Z0-9]{8}-[A-Z0-9]{4}$/;
-export function createInstallationId() { const raw = randomUUID().replaceAll("-", "").toUpperCase(); return `CNS-${raw.slice(0, 8)}-${raw.slice(8, 12)}`; }
-export async function getInstallationId() { const directory = join(getLicenseDataDirectory(), "installation"), file = join(directory, "installation-id.txt"); try { const existing = (await readFile(file, "utf8")).trim(); if (ID_PATTERN.test(existing)) return existing; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } await mkdir(directory, { recursive: true }); const value = createInstallationId(), temporary = `${file}.${randomUUID()}.tmp`; await writeFile(temporary, `${value}\n`, { encoding: "utf8", flag: "wx" }); try { await rename(temporary, file); } catch (error) { await unlink(temporary).catch(() => {}); try { const raced = (await readFile(file, "utf8")).trim(); if (ID_PATTERN.test(raced)) return raced; } catch {} throw error; } return value; }
