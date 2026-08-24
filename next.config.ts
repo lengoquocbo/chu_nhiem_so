@@ -1,7 +1,5 @@
 import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["127.0.0.1"],
-  output: "standalone",
   poweredByHeader: false,
   async headers() { return [{ source: "/:path*", headers: [
     { key: "X-Content-Type-Options", value: "nosniff" },
