@@ -10,6 +10,7 @@ datasource db {
 
 enum Role {
   SYSTEM_ADMIN
+  PRINCIPAL
   TEACHER
   CLASS_MONITOR
   ACADEMIC_VICE_MONITOR
