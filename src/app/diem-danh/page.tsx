@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { requireUser, isTeacher } from "@/lib/auth";
 import { db } from "@/lib/db";

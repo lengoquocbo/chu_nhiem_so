@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
 import { ShieldCheck, UserCog, UserMinus } from "lucide-react";
 import { requireUser, isTeacher } from "@/lib/auth";

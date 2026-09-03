@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { requireTeacher } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Shell } from "@/components/shell";

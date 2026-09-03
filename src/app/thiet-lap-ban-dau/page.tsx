@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { SetupForm } from "./setup-form";

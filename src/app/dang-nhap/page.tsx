@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { GraduationCap, ShieldCheck } from "lucide-react";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";

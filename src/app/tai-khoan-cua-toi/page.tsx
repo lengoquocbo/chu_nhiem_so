@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { requireUser } from "@/lib/auth";
 import { Shell } from "@/components/shell";
 import { MyAccountForm } from "./my-account-form";
