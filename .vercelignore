@@ -1,0 +1,5 @@
+api/
+supabase/
+.venv/
+.env
+.env.local

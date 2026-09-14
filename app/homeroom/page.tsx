@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { supabase, callApi, callApiGet } from "@/lib/supabaseClient";
+import { supabase, callApi, callApiGet, apiUrl } from "@/lib/supabaseClient";
 import { useRoleGuard, RoleGuardMessage } from "@/lib/useRoleGuard";
 import { AppShell, type AppMenuItem } from "@/lib/ui/AppShell";
 import { Section, EmptyState } from "@/lib/ui/Section";
@@ -635,7 +635,7 @@ function ImportStudents({ classId, toast }: { classId: string; toast: ToastApi }
     form.append("class_id", classId);
     form.append("file", file);
     const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch("/api/students/import/validate", {
+    const res = await fetch(apiUrl("/api/students/import/validate"), {
       method: "POST",
       headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
       body: form,

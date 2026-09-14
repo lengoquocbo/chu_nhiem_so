@@ -1,8 +1,6 @@
-"""
-Entry point duy nhất cho Vercel Python Serverless Function.
-Mọi request /api/* được route vào đây (xem vercel.json).
-"""
+"""FastAPI backend, triển khai độc lập trên Render hoặc chạy local bằng uvicorn."""
 import json
+import os
 import re
 from datetime import date
 from typing import Optional
@@ -99,9 +97,18 @@ from _lib.teacher_engine import join_class_by_code, subject_teacher_context
 
 app = FastAPI(title="Class Management API")
 
+cors_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.environ.get(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: giới hạn lại domain thật khi deploy production
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

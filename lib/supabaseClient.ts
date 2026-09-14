@@ -53,6 +53,14 @@ async function dedupingFetch(input: RequestInfo | URL, init?: RequestInit): Prom
 // Không bao giờ đưa SECRET key vào frontend.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY as string;
+const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
+/** Production gọi thẳng FastAPI trên Render; local giữ /api để Next.js proxy sang uvicorn. */
+export function apiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${apiBaseUrl}${normalizedPath}`;
+}
 
 export const supabase = createClient(supabaseUrl, supabaseKey, { global: { fetch: dedupingFetch } });
 
@@ -92,7 +100,7 @@ export function callApi(path: string, body: unknown) {
   beginActivity(true);
   const request = (async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch(path, {
+    const res = await fetch(apiUrl(path), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -123,7 +131,7 @@ export function callApiGet(path: string) {
     let res: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        res = await fetch(path, { headers: { Authorization: `Bearer ${session?.access_token ?? ""}` } });
+        res = await fetch(apiUrl(path), { headers: { Authorization: `Bearer ${session?.access_token ?? ""}` } });
       } catch (error) {
         if (attempt === 2) throw error;
         await new Promise((resolve) => window.setTimeout(resolve, 150 * (2 ** attempt)));
