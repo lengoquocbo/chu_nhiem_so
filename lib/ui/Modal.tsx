@@ -42,7 +42,7 @@ export function ConfirmModal({
       onClick={() => { if (!loading) onCancel(); }}
     >
       <div
-        className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg"
+        className="min-w-0 max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain break-words rounded-lg bg-white p-4 shadow-lg sm:p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="font-serif text-lg text-ink">{title}</h3>

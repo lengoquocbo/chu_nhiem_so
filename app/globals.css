@@ -21,6 +21,17 @@
 }
 
 @layer components {
+  .teacher-score-dialog {
+    min-width: 0;
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    overscroll-behavior: contain;
+  }
+  .teacher-score-dialog :where(.grid > *, .flex > *) {
+    min-width: 0;
+  }
   /* Đường kẻ phân vùng kiểu sổ sách, thay cho thẻ bo tròn đổ bóng lặp lại */
   .section-block {
     @apply border-t border-line pt-6;
