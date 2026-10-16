@@ -7,6 +7,31 @@ const activity: ApiActivity = { pending: 0, mutations: 0 };
 const directRequests = new Map<string, Promise<Response>>();
 const apiGetRequests = new Map<string, Promise<any>>();
 const apiMutationRequests = new Map<string, Promise<any>>();
+const ACTING_SCHOOL_STORAGE_KEY = "school-system-acting-school";
+export const ACTING_SCHOOL_CHANGE_EVENT = "school-system-acting-school-change";
+
+export type ActingSchool = { id: string; name: string };
+
+export function getActingSchool(): ActingSchool | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.localStorage.getItem(ACTING_SCHOOL_STORAGE_KEY);
+    const school = value ? JSON.parse(value) : null;
+    return school?.id && school?.name ? school : null;
+  } catch { return null; }
+}
+
+export function setActingSchool(school: ActingSchool | null) {
+  if (typeof window === "undefined") return;
+  if (school) window.localStorage.setItem(ACTING_SCHOOL_STORAGE_KEY, JSON.stringify(school));
+  else window.localStorage.removeItem(ACTING_SCHOOL_STORAGE_KEY);
+  window.dispatchEvent(new Event(ACTING_SCHOOL_CHANGE_EVENT));
+}
+
+function actingSchoolHeaders(): Record<string, string> {
+  const school = getActingSchool();
+  return school ? { "X-Acting-School-Id": school.id } : {};
+}
 
 function emitActivity() {
   if (typeof window !== "undefined") {
@@ -31,6 +56,8 @@ async function dedupingFetch(input: RequestInfo | URL, init?: RequestInit): Prom
   const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
   const bodyKey = typeof init?.body === "string" ? init.body : "";
   const requestHeaders = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+  const school = getActingSchool();
+  if (school) requestHeaders.set("X-Acting-School-Id", school.id);
   const headerKey = Array.from(requestHeaders.entries()).sort(([left], [right]) => left.localeCompare(right));
   const key = `${method}:${String(input)}:${JSON.stringify(headerKey)}:${bodyKey}`;
   const existing = directRequests.get(key);
@@ -38,7 +65,7 @@ async function dedupingFetch(input: RequestInfo | URL, init?: RequestInit): Prom
 
   const isMutation = !["GET", "HEAD", "OPTIONS"].includes(method);
   beginActivity(isMutation);
-  const request = fetch(input, init);
+  const request = fetch(input, { ...init, headers: requestHeaders });
   directRequests.set(key, request);
   try {
     return (await request).clone();
@@ -93,7 +120,7 @@ export function clearCurrentAccessCache() {
 /** Gọi 1 API Python (Vercel Function) kèm sẵn access_token của user hiện tại. */
 export function callApi(path: string, body: unknown) {
   const serializedBody = JSON.stringify(body);
-  const key = `${path}:${serializedBody}`;
+  const key = `${getActingSchool()?.id || "no-school"}:${path}:${serializedBody}`;
   const existing = apiMutationRequests.get(key);
   if (existing) return existing;
 
@@ -105,6 +132,7 @@ export function callApi(path: string, body: unknown) {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session?.access_token ?? ""}`,
+        ...actingSchoolHeaders(),
       },
       body: serializedBody,
     });
@@ -121,8 +149,70 @@ export function callApi(path: string, body: unknown) {
   });
 }
 
+/** Gọi API Python method PUT kèm access_token. */
+export function callApiPut(path: string, body: unknown) {
+  const serializedBody = JSON.stringify(body);
+  const key = `PUT:${getActingSchool()?.id || "no-school"}:${path}:${serializedBody}`;
+  const existing = apiMutationRequests.get(key);
+  if (existing) return existing;
+
+  beginActivity(true);
+  const request = (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(apiUrl(path), {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session?.access_token ?? ""}`,
+        ...actingSchoolHeaders(),
+      },
+      body: serializedBody,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "API error");
+    }
+    return res.json();
+  })();
+  apiMutationRequests.set(key, request);
+  return request.finally(() => {
+    apiMutationRequests.delete(key);
+    endActivity(true);
+  });
+}
+
+/** Gọi API Python method DELETE kèm access_token. */
+export function callApiDelete(path: string) {
+  const key = `DELETE:${getActingSchool()?.id || "no-school"}:${path}`;
+  const existing = apiMutationRequests.get(key);
+  if (existing) return existing;
+
+  beginActivity(true);
+  const request = (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(apiUrl(path), {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${session?.access_token ?? ""}`,
+        ...actingSchoolHeaders(),
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "API error");
+    }
+    return res.json();
+  })();
+  apiMutationRequests.set(key, request);
+  return request.finally(() => {
+    apiMutationRequests.delete(key);
+    endActivity(true);
+  });
+}
+
 export function callApiGet(path: string) {
-  const existing = apiGetRequests.get(path);
+  const key = `${getActingSchool()?.id || "no-school"}:${path}`;
+  const existing = apiGetRequests.get(key);
   if (existing) return existing;
 
   beginActivity(false);
@@ -131,7 +221,7 @@ export function callApiGet(path: string) {
     let res: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        res = await fetch(apiUrl(path), { headers: { Authorization: `Bearer ${session?.access_token ?? ""}` } });
+        res = await fetch(apiUrl(path), { headers: { Authorization: `Bearer ${session?.access_token ?? ""}`, ...actingSchoolHeaders() } });
       } catch (error) {
         if (attempt === 2) throw error;
         await new Promise((resolve) => window.setTimeout(resolve, 150 * (2 ** attempt)));
@@ -145,9 +235,9 @@ export function callApiGet(path: string) {
     if (!res.ok) throw new Error(data.detail || "API error");
     return data;
   })();
-  apiGetRequests.set(path, request);
+  apiGetRequests.set(key, request);
   return request.finally(() => {
-    apiGetRequests.delete(path);
+    apiGetRequests.delete(key);
     endActivity(false);
   });
 }

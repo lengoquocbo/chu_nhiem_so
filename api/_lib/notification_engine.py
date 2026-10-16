@@ -167,16 +167,13 @@ def _send_telegram(chat_id: str, content: str) -> None:
         raise RuntimeError(f"Telegram API lỗi: {body}")
 
 
-def process_pending_notifications(limit: int = 50) -> int:
+def process_pending_notifications(limit: int = 50, school_id: str | None = None) -> int:
     """Gọi định kỳ (cron) để retry các thông báo failed/pending còn sót."""
     supabase = get_supabase()
-    resp = (
-        supabase.table("notifications")
-        .select("*")
-        .in_("status", ["pending", "failed"])
-        .limit(limit)
-        .execute()
-    )
+    query = supabase.table("notifications").select("*,students!inner(school_id)") if school_id else supabase.table("notifications").select("*")
+    if school_id:
+        query = query.eq("students.school_id", school_id)
+    resp = query.in_("status", ["pending", "failed"]).limit(limit).execute()
     count = 0
     for notif in resp.data or []:
         _send_notification(supabase, notif, notif["recipient_parent_id"])

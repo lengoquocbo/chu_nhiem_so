@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from threading import Lock, RLock
 from typing import Callable, TypeVar
+from uuid import UUID
 
 import httpx
 import jwt
@@ -80,12 +81,25 @@ class CurrentUser:
     user_id: str
     email: str | None
     roles: list[str] = field(default_factory=list)
+    school_id: str | None = None
 
     def has_role(self, role: str) -> bool:
         return role in self.roles
 
+    def is_system_admin(self) -> bool:
+        return self.has_role("system_admin")
+
     def is_principal(self) -> bool:
-        return self.has_role("principal")
+        return (self.has_role("principal") or self.is_system_admin()) and self.school_id is not None
+
+    def is_principal_for_class(self, class_id: str) -> bool:
+        return self.is_principal() and self.school_id == get_class_school_id(class_id)
+
+    def is_principal_for_year(self, school_year_id: str) -> bool:
+        return self.is_principal() and self.school_id == get_year_school_id(school_year_id)
+
+    def is_principal_for_student(self, student_id: str) -> bool:
+        return self.is_principal() and self.school_id == get_student_school_id(student_id)
 
 
 @lru_cache
@@ -133,7 +147,10 @@ def _decode_token(token: str) -> dict:
     )
 
 
-def get_current_user(authorization: str = Header(default="")) -> CurrentUser:
+def get_current_user(
+    authorization: str = Header(default=""),
+    x_acting_school_id: str = Header(default="", alias="X-Acting-School-Id"),
+) -> CurrentUser:
     if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -147,14 +164,105 @@ def get_current_user(authorization: str = Header(default="")) -> CurrentUser:
         raise HTTPException(status_code=401, detail="Token thiếu user id")
 
     supabase = get_supabase()
-    roles_resp = _cached_read(
-        f"roles:{user_id}",
-        15,
-        lambda: supabase.table("user_roles").select("role").eq("user_id", user_id).execute(),
-    )
+    # Staff role/school revocation must take effect on the next API request.
+    roles_resp = supabase.table("user_roles").select("role").eq("user_id", user_id).execute()
     roles = [r["role"] for r in (roles_resp.data or [])]
 
-    return CurrentUser(user_id=user_id, email=email, roles=roles)
+    school_id = None
+    if any(role in roles for role in ("principal", "homeroom_teacher", "subject_teacher")):
+        assignment = supabase.table("staff_school_assignments")\
+            .select("school_id").eq("user_id", user_id).limit(1).execute().data or []
+        school_id = assignment[0]["school_id"] if assignment else None
+        if school_id is None:
+            raise HTTPException(status_code=403, detail="Tài khoản nhân sự chưa được gắn với trường.")
+
+    if "system_admin" in roles and x_acting_school_id:
+        try:
+            selected_school_id = str(UUID(x_acting_school_id))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail="Mã trường được chọn không hợp lệ.") from exc
+        selected = supabase.table("schools").select("id").eq("id", selected_school_id).limit(1).execute().data or []
+        if not selected:
+            raise HTTPException(status_code=404, detail="Trường được chọn không tồn tại.")
+        school_id = selected_school_id
+
+    return CurrentUser(user_id=user_id, email=email, roles=roles, school_id=school_id)
+
+
+def get_year_school_id(school_year_id: str) -> str | None:
+    rows = _cached_read(
+        f"year-school:{school_year_id}", 15,
+        lambda: get_supabase().table("school_years").select("school_id")
+        .eq("id", school_year_id).limit(1).execute().data or [],
+    )
+    return rows[0]["school_id"] if rows else None
+
+
+def get_class_school_id(class_id: str) -> str | None:
+    rows = _cached_read(
+        f"class-school:{class_id}", 15,
+        lambda: get_supabase().table("classes").select("school_year_id")
+        .eq("id", class_id).limit(1).execute().data or [],
+    )
+    return get_year_school_id(rows[0]["school_year_id"]) if rows else None
+
+
+def get_student_school_id(student_id: str) -> str | None:
+    rows = _cached_read(
+        f"student-school:{student_id}", 15,
+        lambda: get_supabase().table("students").select("school_id")
+        .eq("id", student_id).limit(1).execute().data or [],
+    )
+    return rows[0]["school_id"] if rows else None
+
+
+def get_school_class_ids(school_id: str) -> list[str]:
+    db = get_supabase()
+    years = db.table("school_years").select("id").eq("school_id", school_id).execute().data or []
+    year_ids = [row["id"] for row in years]
+    if not year_ids:
+        return []
+    classes = db.table("classes").select("id").in_("school_year_id", year_ids).execute().data or []
+    return [row["id"] for row in classes]
+
+
+def _require_term_in_class(class_id: str, academic_term_id: str) -> None:
+    db = get_supabase()
+    class_rows = _cached_read(
+        f"class-year:{class_id}", 15,
+        lambda: db.table("classes").select("school_year_id")
+        .eq("id", class_id).limit(1).execute().data or [],
+    )
+    term_rows = _cached_read(
+        f"term-year:{academic_term_id}", 15,
+        lambda: db.table("academic_terms").select("school_year_id")
+        .eq("id", academic_term_id).limit(1).execute().data or [],
+    )
+    if not class_rows or not term_rows or class_rows[0]["school_year_id"] != term_rows[0]["school_year_id"]:
+        raise HTTPException(status_code=422, detail="Học kỳ không thuộc năm học của lớp.")
+
+
+def require_principal_for_class(user: CurrentUser, class_id: str) -> None:
+    if not user.is_principal_for_class(class_id):
+        raise HTTPException(status_code=403, detail="Bạn không quản lý trường của lớp này.")
+
+
+def require_principal_for_year(user: CurrentUser, school_year_id: str) -> None:
+    if not user.is_principal_for_year(school_year_id):
+        raise HTTPException(status_code=403, detail="Bạn không quản lý trường của năm học này.")
+
+
+def require_principal_for_student(user: CurrentUser, student_id: str) -> None:
+    if not user.is_principal_for_student(student_id):
+        raise HTTPException(status_code=403, detail="Bạn không quản lý trường của học sinh này.")
+
+
+def require_principal_for_term(user: CurrentUser, academic_term_id: str) -> None:
+    rows = get_supabase().table("academic_terms").select("school_year_id")\
+        .eq("id", academic_term_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Không tìm thấy học kỳ.")
+    require_principal_for_year(user, rows[0]["school_year_id"])
 
 
 def get_user_class_scope(user_id: str, class_id: str) -> list[str]:
@@ -171,7 +279,8 @@ def get_user_class_scope(user_id: str, class_id: str) -> list[str]:
 
 def require_homeroom_term_access(user: CurrentUser, class_id: str, academic_term_id: str) -> None:
     """GVCN chỉ được thao tác học kỳ mà mình được Hiệu trưởng phân công."""
-    if user.is_principal():
+    _require_term_in_class(class_id, academic_term_id)
+    if user.is_principal_for_class(class_id):
         return
     rows = _cached_read(
         f"homeroom-term:{user.user_id}:{class_id}:{academic_term_id}",
@@ -203,7 +312,7 @@ def require_student_access(user: CurrentUser, student_id: str) -> None:
       - user có bất kỳ scope nào trên lớp hiện tại của học sinh (GVCN/GVBM/cán bộ lớp)
       - user là principal
     """
-    if user.is_principal():
+    if user.is_principal_for_student(student_id):
         return
     supabase = get_supabase()
 
@@ -263,8 +372,12 @@ def require_student_access(user: CurrentUser, student_id: str) -> None:
 
 def require_class_role(user: CurrentUser, class_id: str, allowed_roles: list[str]) -> None:
     """Raise 403 nếu user không có 1 trong các scope_role cho phép trên lớp này."""
-    if user.is_principal():
+    class_school_id = get_class_school_id(class_id)
+    if user.is_principal_for_class(class_id):
         return
+    if any(role in user.roles for role in ("principal", "homeroom_teacher", "subject_teacher")):
+        if user.school_id is None or user.school_id != class_school_id:
+            raise HTTPException(status_code=403, detail="Lớp không thuộc trường của bạn.")
     scope = get_user_class_scope(user.user_id, class_id)
     if any(r in allowed_roles for r in scope):
         return
@@ -288,7 +401,7 @@ def require_class_role(user: CurrentUser, class_id: str, allowed_roles: list[str
 
 def require_student_record_scope(user: CurrentUser, student_id: str, class_id: str) -> None:
     """Tổ trưởng chỉ được ghi nhận học sinh thuộc đúng tổ mình phụ trách."""
-    if user.is_principal():
+    if user.is_principal_for_class(class_id):
         return
     class_scope = get_user_class_scope(user.user_id, class_id)
     if any(role in class_scope for role in ("homeroom_teacher", "subject_teacher", "class_monitor", "vice_monitor")):
@@ -318,7 +431,7 @@ def require_student_record_scope(user: CurrentUser, student_id: str, class_id: s
 
 
 def require_group_access(user: CurrentUser, group_id: str, class_id: str) -> None:
-    if user.is_principal():
+    if user.is_principal_for_class(class_id):
         return
     class_scope = get_user_class_scope(user.user_id, class_id)
     if any(role in class_scope for role in ("homeroom_teacher", "class_monitor")):
@@ -365,7 +478,7 @@ def require_active_student_in_class(student_id: str, class_id: str) -> None:
 
 
 def require_subject_assignment(user: CurrentUser, class_id: str, subject_id: str) -> None:
-    if user.is_principal() or "homeroom_teacher" in get_user_class_scope(user.user_id, class_id):
+    if user.is_principal_for_class(class_id) or "homeroom_teacher" in get_user_class_scope(user.user_id, class_id):
         return
     resp = (
         get_supabase().table("class_subject_teachers")
@@ -390,7 +503,8 @@ def require_subject_term_access(
     require_active: bool = False,
 ) -> None:
     """Xác thực phân công GVBM trong đúng học kỳ; học kỳ đóng vẫn được xem."""
-    if user.is_principal() or "homeroom_teacher" in get_user_class_scope(user.user_id, class_id):
+    _require_term_in_class(class_id, academic_term_id)
+    if user.is_principal_for_class(class_id) or "homeroom_teacher" in get_user_class_scope(user.user_id, class_id):
         if require_active:
             term_rows = get_supabase().table("academic_terms").select("status").eq("id", academic_term_id).limit(1).execute().data or []
             if not term_rows or term_rows[0]["status"] != "active":
