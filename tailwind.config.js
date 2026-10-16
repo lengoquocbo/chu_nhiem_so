@@ -30,8 +30,8 @@ module.exports = {
         line: "#E2E4E9",
       },
       fontFamily: {
-        serif: ["var(--font-lora)", "Georgia", "serif"],
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        serif: ["Calibri", "Arial", "sans-serif"],
+        sans: ["Calibri", "Arial", "sans-serif"],
       },
       borderRadius: {
         sm: "4px",

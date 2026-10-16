@@ -1,9 +1,5 @@
-import { Inter, Lora } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin", "vietnamese"], variable: "--font-inter" });
-const lora = Lora({ subsets: ["latin", "vietnamese"], variable: "--font-lora" });
 
 export const metadata = {
   title: "Sổ điểm | Hệ thống quản lý lớp học",
@@ -31,7 +27,7 @@ const IGNORE_URBAN_VPN_ERROR_SCRIPT = `
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="vi" className={`${inter.variable} ${lora.variable}`} suppressHydrationWarning>
+    <html lang="vi" suppressHydrationWarning>
       <body className="font-sans" suppressHydrationWarning>
         <Script id="ignore-urban-vpn-extension-error" strategy="beforeInteractive">{IGNORE_URBAN_VPN_ERROR_SCRIPT}</Script>
         {children}
