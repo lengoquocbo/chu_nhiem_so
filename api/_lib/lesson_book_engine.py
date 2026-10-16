@@ -11,6 +11,34 @@ from .supabase_client import get_supabase
 RATINGS = {"Tốt", "Khá", "Đạt", "Chưa đạt"}
 ATTENDANCE_STATUSES = {"present", "late", "unexcused_absent", "excused_absent", "left_early", "skipped"}
 
+ATTENDANCE_CRITERIA = {
+    "late": ("ATTENDANCE_LATE", {"Đi muộn", "Đi trễ"}),
+    "unexcused_absent": ("ATTENDANCE_ABSENT_UNEXCUSED", {"Vắng không phép", "Nghỉ không phép", "Vắng học không phép"}),
+    "excused_absent": (None, {"Vắng có phép"}),
+    "left_early": ("ATTENDANCE_LEFT_EARLY", {"Về sớm không phép"}),
+    "skipped": (None, {"Bỏ tiết"}),
+}
+
+
+def _attendance_criterion(db, class_id: str, status: str, criteria: list[dict]) -> str | None:
+    if status == "present":
+        return None
+    event_code, names = ATTENDANCE_CRITERIA[status]
+    active = [c for c in criteria if c.get("status") == "active"]
+    mapped_id = None
+    if event_code:
+        event_types = db.table("event_types").select("id").eq("code", event_code).limit(1).execute().data or []
+        if event_types:
+            mappings = db.table("event_criteria_mappings").select("criteria_id").eq("class_id", class_id).eq("event_type_id", event_types[0]["id"]).eq("status", "active").limit(1).execute().data or []
+            if mappings:
+                mapped_id = mappings[0]["criteria_id"]
+    matches = [c for c in active if c["id"] == mapped_id] if mapped_id else [c for c in active if c.get("name", "").strip().casefold() in {n.casefold() for n in names}]
+    if len(matches) != 1:
+        raise HTTPException(status_code=422, detail=f"Chưa xác định được tiêu chí điểm danh '{status}'. GVCN cần cấu hình tiêu chí tương ứng và bật cho tuần này.")
+    if status != "excused_absent" and matches[0].get("kind") != "DEDUCT":
+        raise HTTPException(status_code=422, detail="Tiêu chí vi phạm điểm danh phải là tiêu chí trừ điểm.")
+    return matches[0]["id"]
+
 
 def _audit(db, actor_id: str, action: str, entity: str, entity_id: str, before, after, reason=None) -> None:
     db.table("audit_logs").insert({
@@ -239,7 +267,22 @@ def attendance_detail(lesson_id: str, class_id: str) -> dict:
     links = db.table("lesson_individual_criteria").select("student_id,criteria_id,note").eq("lesson_id", lesson_id).eq("status", "active").execute().data or []
     allowed = db.table("competition_week_criteria").select("criteria_id, criteria(*)").eq("week_id", lesson["week_id"]).execute().data or []
     criteria = [row["criteria"] for row in allowed if row.get("criteria") and row["criteria"].get("status") == "active"]
-    return {"lesson": lesson, "students": students, "records": records, "selections": links, "criteria": criteria}
+    attendance_mappings = {}
+    for status in ATTENDANCE_CRITERIA:
+        try:
+            criteria_id = _attendance_criterion(db, class_id, status, criteria)
+        except HTTPException:
+            continue
+        if criteria_id:
+            criterion = next((item for item in criteria if item["id"] == criteria_id), None)
+            if criterion:
+                attendance_mappings[status] = {
+                    "criteria_id": criterion["id"],
+                    "criteria_code": criterion["code"],
+                    "criteria_name": criterion["name"],
+                    "points": -criterion["points"] if criterion["kind"] == "DEDUCT" else criterion["points"],
+                }
+    return {"lesson": lesson, "students": students, "records": records, "selections": links, "criteria": criteria, "attendance_mappings": attendance_mappings}
 
 
 def save_attendance(lesson_id: str, class_id: str, actor_id: str, rows: list[dict]) -> dict:
@@ -249,6 +292,33 @@ def save_attendance(lesson_id: str, class_id: str, actor_id: str, rows: list[dic
     if lesson["approval_status"] != "approved":
         raise HTTPException(status_code=409, detail="Tiết học chưa được duyệt.")
     before_detail = attendance_detail(lesson_id, class_id)
+
+    # Validate the entire submission before persisting any attendance changes.
+    allowed = {c["id"]: c["code"] for c in before_detail["criteria"]}
+    enrolled = {s["id"] for s in before_detail["students"]}
+    previous = {r["student_id"]: r["attendance_status"] for r in before_detail["records"]}
+    resolved = {}
+    prepared_rows = []
+    seen = set()
+    for row in rows:
+        student_id = row["student_id"]
+        status = row.get("attendance_status", "present")
+        selected = set(row.get("criteria_ids") or [])
+        if student_id not in enrolled or student_id in seen or status not in ATTENDANCE_STATUSES or not selected.issubset(allowed):
+            raise HTTPException(status_code=422, detail="Dữ liệu điểm danh hoặc tiêu chí không hợp lệ.")
+        seen.add(student_id)
+        if status not in resolved:
+            resolved[status] = _attendance_criterion(db, class_id, status, before_detail["criteria"])
+        old_status = previous.get(student_id, "present")
+        if old_status != status and old_status in ATTENDANCE_CRITERIA:
+            try:
+                old_id = _attendance_criterion(db, class_id, old_status, before_detail["criteria"])
+                selected.discard(old_id)
+            except HTTPException:
+                pass  # An old disabled criterion must not block correcting attendance.
+        if resolved[status]:
+            selected.add(resolved[status])
+        prepared_rows.append({**row, "criteria_ids": sorted(selected)})
 
     session_rows = db.table("attendance_sessions").select("*").eq("lesson_id", lesson_id).limit(1).execute().data or []
     if session_rows:
@@ -260,12 +330,7 @@ def save_attendance(lesson_id: str, class_id: str, actor_id: str, rows: list[dic
         else:
             session = db.table("attendance_sessions").insert({"lesson_id": lesson_id, "class_id": class_id, "subject_id": lesson["subject_id"], "teacher_id": lesson["teacher_id"], "session_date": lesson["lesson_date"], "period": lesson["period"]}).execute().data[0]
 
-    allowed_rows = db.table("competition_week_criteria").select("criteria_id, criteria(code)").eq("week_id", lesson["week_id"]).execute().data or []
-    allowed = {row["criteria_id"]: row["criteria"]["code"] for row in allowed_rows if row.get("criteria")}
-    enrollment_rows = db.table("student_class_enrollments").select("student_id").eq("class_id", class_id).is_("left_at", None).execute().data or []
-    enrolled = {row["student_id"] for row in enrollment_rows}
-
-    for row in rows:
+    for row in prepared_rows:
         student_id = row["student_id"]
         status = row.get("attendance_status", "present")
         note = row.get("note") or None
