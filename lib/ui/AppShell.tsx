@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { API_ACTIVITY_EVENT, clearCurrentAccessCache, getCurrentAccess, supabase } from "@/lib/supabaseClient";
+import { ACTING_SCHOOL_CHANGE_EVENT, API_ACTIVITY_EVENT, callApiGet, clearCurrentAccessCache, getActingSchool, getCurrentAccess, setActingSchool, supabase } from "@/lib/supabaseClient";
 
 export type MenuIcon = "users" | "calendar" | "layers" | "school" | "upload" | "settings" | "groups" | "shield" | "check" | "clipboard" | "link" | "chart";
 
@@ -16,21 +16,24 @@ export type AppMenuItem = {
 };
 
 const WORKSPACES = [
-  { href: "/admin", label: "Quản trị", roles: ["principal"] },
-  { href: "/homeroom", label: "Chủ nhiệm", roles: ["homeroom_teacher", "principal"] },
-  { href: "/teacher", label: "Giảng dạy", roles: ["subject_teacher", "principal"] },
+  { href: "/system", label: "Quản trị hệ thống", roles: ["system_admin"] },
+  { href: "/admin", label: "Quản trị", roles: ["principal", "system_admin"] },
+  { href: "/homeroom", label: "Chủ nhiệm", roles: ["homeroom_teacher", "principal", "system_admin"] },
+  { href: "/teacher", label: "Giảng dạy", roles: ["subject_teacher", "principal", "system_admin"] },
   { href: "/student", label: "Học sinh", roles: ["student"] },
   { href: "/parent", label: "Phụ huynh", roles: ["parent"] },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
-  principal: "Hiệu trưởng / Admin",
+  system_admin: "Admin cấp hệ thống",
+  principal: "Hiệu trưởng",
   homeroom_teacher: "Giáo viên chủ nhiệm",
   subject_teacher: "Giáo viên bộ môn",
   student: "Học sinh",
   parent: "Phụ huynh",
 };
-const ROLE_PRIORITY = ["principal", "homeroom_teacher", "subject_teacher", "student", "parent"];
+const ROLE_PRIORITY = ["system_admin", "principal", "homeroom_teacher", "subject_teacher", "student", "parent"];
+type SchoolOption = { id: string; name: string };
 
 function MenuGlyph({ icon = "clipboard" }: { icon?: MenuIcon }) {
   const paths: Record<MenuIcon, React.ReactNode> = {
@@ -64,6 +67,8 @@ export function AppShell({ title, subtitle, currentPath, menuItems = [], activeI
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [apiActivity, setApiActivity] = useState({ pending: 0, mutations: 0 });
+  const [actingSchool, setActingSchool] = useState<{ id: string; name: string } | null>(null);
+  const [schools, setSchools] = useState<SchoolOption[]>([]);
 
   useEffect(() => {
     setCollapsed(window.localStorage.getItem("school-sidebar-collapsed") === "true");
@@ -74,6 +79,25 @@ export function AppShell({ title, subtitle, currentPath, menuItems = [], activeI
       setRoles(loadedRoles);
     })();
   }, []);
+
+  useEffect(() => {
+    const update = () => setActingSchool(getActingSchool());
+    update();
+    window.addEventListener(ACTING_SCHOOL_CHANGE_EVENT, update);
+    return () => window.removeEventListener(ACTING_SCHOOL_CHANGE_EVENT, update);
+  }, []);
+
+  useEffect(() => {
+    if (!roles?.includes("system_admin")) {
+      setSchools([]);
+      return;
+    }
+    let active = true;
+    void callApiGet("/api/system/schools")
+      .then((rows) => { if (active) setSchools(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (active) setSchools([]); });
+    return () => { active = false; };
+  }, [roles]);
 
   useEffect(() => {
     const update = (event: Event) => setApiActivity((event as CustomEvent<{ pending: number; mutations: number }>).detail);
@@ -94,6 +118,13 @@ export function AppShell({ title, subtitle, currentPath, menuItems = [], activeI
     window.location.href = "/";
   }
 
+  function changeActingSchool(schoolId: string) {
+    const school = schools.find((item) => item.id === schoolId);
+    if (!school) return;
+    setActingSchool(school);
+    window.location.assign("/admin");
+  }
+
   const visibleMenu = useMemo(() => roles === null ? [] : menuItems.filter((item) => !item.roles || item.roles.some((role) => roles.includes(role))), [menuItems, roles]);
   const menuGroups = useMemo(() => {
     const groups = new Map<string, AppMenuItem[]>();
@@ -110,7 +141,7 @@ export function AppShell({ title, subtitle, currentPath, menuItems = [], activeI
     <aside className={`flex h-full w-72 flex-col border-r border-white/10 bg-navy text-white transition-[width] duration-200 ${collapsed ? "lg:w-20" : "lg:w-72"}`}>
       <div className="flex h-20 items-center border-b border-white/10 px-5">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/10 font-serif text-lg">SĐ</div>
-        <div className={`ml-3 min-w-0 ${collapsed ? "lg:hidden" : ""}`}><div className="font-serif text-lg leading-tight">Sổ điểm</div><div className="mt-0.5 truncate text-[11px] text-white/50">Quản lý lớp học &amp; thi đua</div></div>
+        <div className={`ml-3 min-w-0 ${collapsed ? "lg:hidden" : ""}`}><div className="font-serif text-lg leading-tight">Sổ Điểm</div><div className="mt-0.5 truncate text-[11px] text-white/50">Quản Lý Lớp Học &amp; Thi Đua</div></div>
         <button type="button" onClick={() => setMobileOpen(false)} className="ml-auto rounded p-2 text-white/60 hover:bg-white/10 hover:text-white lg:hidden" aria-label="Đóng menu">✕</button>
       </div>
 
@@ -160,7 +191,23 @@ export function AppShell({ title, subtitle, currentPath, menuItems = [], activeI
       <header className="sticky top-0 z-30 flex min-h-20 items-center border-b border-line bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
         <button type="button" onClick={() => setMobileOpen(true)} className="mr-3 rounded-lg border border-line p-2 text-navy hover:bg-paper lg:hidden" aria-label="Mở menu"><svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h16M4 12h16M4 17h16" /></svg></button>
         <div className="min-w-0"><h1 className="truncate font-serif text-xl text-ink sm:text-2xl">{title}</h1>{subtitle && <p className="mt-0.5 hidden truncate text-xs text-ink-muted sm:block">{subtitle}</p>}</div>
-        {primaryRole && <span className="ml-auto hidden rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink-muted sm:inline-flex">{ROLE_LABELS[primaryRole]}</span>}
+        <div className="ml-auto flex items-center gap-2">
+          {roles?.includes("system_admin") && (
+            <label className="hidden items-center gap-2 rounded-full border border-gold/40 bg-gold/10 py-1 pl-3 pr-2 text-xs font-medium text-navy sm:inline-flex">
+              <span className="whitespace-nowrap">Đang quản trị:</span>
+              <select
+                aria-label="Chọn trường để quản trị"
+                className="max-w-48 bg-transparent text-xs font-semibold text-navy outline-none"
+                value={actingSchool?.id || ""}
+                onChange={(event) => changeActingSchool(event.target.value)}
+              >
+                <option value="" disabled>{schools.length ? "Chọn trường" : "Chưa có trường"}</option>
+                {schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}
+              </select>
+            </label>
+          )}
+          {primaryRole && <span className="hidden rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink-muted sm:inline-flex">{ROLE_LABELS[primaryRole]}</span>}
+        </div>
       </header>
       <main className="p-3 sm:p-6 lg:p-8" aria-busy={apiActivity.mutations > 0}><div className="mx-auto min-h-[calc(100vh-8rem)] max-w-7xl overflow-hidden rounded-xl border border-line bg-white shadow-card"><div className={`overflow-x-auto p-4 sm:p-6 lg:p-8 ${apiActivity.mutations > 0 ? "pointer-events-none cursor-wait select-none" : ""}`}>{children}</div></div></main>
     </div>

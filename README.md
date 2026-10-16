@@ -26,7 +26,7 @@ api/
     score_engine.py      Lõi: ghi sự việc -> đối chiếu tiêu chí -> tạo transaction
     week_engine.py        Chốt tuần -> tính weekly_score_summary -> khóa
 supabase/
-  migrations/          Chạy TUẦN TỰ theo số thứ tự 001 -> 013
+  migrations/          Chạy TUẦN TỰ theo số thứ tự 001 -> 033
 vercel.json            Route /api/* vào api/index.py
 .env.example           Danh sách biến môi trường cần set
 ```
@@ -38,7 +38,10 @@ Dự án này dùng **hệ key mới của Supabase** (`sb_publishable_...` / `s
 
 1. Vào Supabase Dashboard -> SQL Editor.
 2. Chạy lần lượt từng file trong `supabase/migrations/` theo đúng thứ tự
-   (001 -> 013). Mỗi file phụ thuộc bảng được tạo ở file trước.
+   (001 -> 033). Mỗi file phụ thuộc bảng được tạo ở file trước; riêng 030
+   phải commit xong trước khi chạy 031 vì thêm giá trị enum mới.
+   Nếu nâng cấp database đang dùng từ 027, xem [hướng dẫn nhiều trường](docs/multi-school.md)
+   trước khi triển khai frontend/API mới.
 3. Vào **Project Settings -> API**, lấy:
    - `Project URL` -> dùng cho cả `SUPABASE_URL` và `NEXT_PUBLIC_SUPABASE_URL`
    - `Publishable key` (sb_publishable_...) -> `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
@@ -49,9 +52,10 @@ Dự án này dùng **hệ key mới của Supabase** (`sb_publishable_...` / `s
 
 ## 3. Đã test thật trước khi giao (không chỉ đọc code)
 
-Xem chi tiết đầy đủ ở mục 6 bên dưới. Tóm tắt: 13/13 migration chạy được,
-7/7 test nghiệp vụ pass, 7/7 test RLS pass, 2 bug thật phát hiện + sửa,
-Next.js build sạch, FastAPI chạy thật bằng uvicorn.
+Các kết quả test cũ ở mục 7 chỉ áp dụng cho phạm vi migration đã chạy khi đó.
+Migration nhiều trường 028–032 đã được áp dụng vào Supabase mà cấu hình local trỏ tới và
+kiểm tra backfill/quyền admin cấp hệ thống. Trước khi dùng ở môi trường khác,
+cần sao lưu và kiểm thử phân quyền giữa ít nhất hai trường.
 
 ## 4. Chạy local
 
@@ -76,15 +80,16 @@ môi trường do hệ thống hoặc Vercel cung cấp luôn được ưu tiên
 3. Vercel tự nhận diện Next.js ở root + Python function trong `api/index.py`
    nhờ `vercel.json`.
 
-## 6. Tạo tài khoản đầu tiên (Hiệu trưởng/BGH)
+## 6. Admin cấp hệ thống và hiệu trưởng đầu tiên
 
-Sau khi deploy, vào Supabase Dashboard -> Authentication -> tạo 1 user bằng
-email/password, sau đó chạy SQL sau để gán role `principal`:
-
-```sql
-insert into user_roles (user_id, role)
-values ('<uuid-của-user-vừa-tạo>', 'principal');
-```
+Sau khi chạy migration 028–033, tài khoản quản trị hiện có được gán role
+`system_admin` bằng migration 031, không còn role `principal`. Đăng nhập sẽ
+chuyển đến `/system`: trước tiên **thêm trường học**, sau đó chọn trường và
+**cấp tài khoản hiệu trưởng**. Mỗi hiệu trưởng chỉ gắn với một trường.
+Hiệu trưởng đăng nhập vào `/admin` để quản lý năm học, lớp và giáo viên của
+trường mình; không thể tự cấp tài khoản hiệu trưởng. Admin cấp hệ thống có thể
+chọn một trường tại `/system` rồi dùng đầy đủ quyền hiệu trưởng trong đúng trường
+đó. Không lưu mật khẩu trong migration, source hay tài liệu.
 
 ## 7. Đã TEST THẬT (không chỉ đọc code)
 
@@ -134,7 +139,8 @@ cần tự chạy thử 1 lượt thật trên project của mình để chắc 
 
 | Vai trò | Đăng nhập | Chức năng đã có | Còn thiếu |
 |---|---|---|---|
-| **BGH/Hiệu trưởng** | ✅ (`/admin`, role `principal`) | Tạo tài khoản theo role (email + mật khẩu ban đầu), tạo năm học/khối/lớp, phân công GVCN | Quản lý giáo viên nâng cao (khóa tài khoản, đổi thông tin), báo cáo toàn trường |
+| **Admin cấp hệ thống** | `/system`, role `system_admin` | Thêm trường, cấp hiệu trưởng cho một trường | Cần kiểm thử staging với database thật |
+| **BGH/Hiệu trưởng** | `/admin`, role `principal` | Tạo tài khoản giáo viên/học sinh/phụ huynh trong trường, tạo năm học/khối/lớp, phân công GVCN | Quản lý giáo viên nâng cao (khóa tài khoản, đổi thông tin), báo cáo toàn trường |
 | **GVCN** | ✅ (`/homeroom`, role `homeroom_teacher`) | Import Excel học sinh, tạo tài khoản đăng nhập học sinh/phụ huynh, cấu hình tiêu chí + ánh xạ sự kiện, tạo tổ + thêm thành viên, chỉ định lớp trưởng/lớp phó/tổ trưởng, tạo/chốt/mở khóa tuần thi đua, duyệt/điều chỉnh điểm | Phân quyền chi tiết cho từng cán bộ lớp (`officer_permissions` đã có schema, chưa có UI) |
 | **GVBM** | ✅ (`/teacher`, role `subject_teacher`) | Tham gia lớp bằng mã lớp, điểm danh hàng loạt theo tiết (tự sinh sự kiện + điểm), ghi nhận cộng/trừ + note | - |
 | **Lớp trưởng/Lớp phó/Tổ trưởng** | ⚠️ Có scope quyền (RLS đã test pass) nhưng **chưa có trang giao diện riêng** - hiện dùng chung UI với GVCN nếu được cấp quyền tương tự | - | Trang riêng cho các vai trò này (hiện họ có quyền trong DB nhưng chưa có UI để thao tác) |

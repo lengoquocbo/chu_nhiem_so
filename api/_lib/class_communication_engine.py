@@ -14,10 +14,22 @@ def _audit(db, actor_id: str, action: str, entity: str, entity_id: str, before, 
     }).execute()
 
 
-def accessible_class_ids(user_id: str, is_principal: bool = False) -> list[str]:
+def accessible_class_ids(user_id: str, is_principal: bool = False, school_id: str | None = None) -> list[str]:
     db = get_supabase()
     if is_principal:
-        return [row["id"] for row in (db.table("classes").select("id").eq("status", "active").execute().data or [])]
+        if school_id is None:
+            assignment = db.table("staff_school_assignments").select("school_id").eq("user_id", user_id).limit(1).execute().data or []
+            school_id = assignment[0]["school_id"] if assignment else None
+        if school_id is None:
+            return []
+        years = db.table("school_years").select("id").eq("school_id", school_id).execute().data or []
+        year_ids = [row["id"] for row in years]
+        if not year_ids:
+            return []
+        return [row["id"] for row in (
+            db.table("classes").select("id").in_("school_year_id", year_ids)
+            .eq("status", "active").execute().data or []
+        )]
     scope = db.table("user_class_scope").select("class_id").eq("user_id", user_id).execute().data or []
     links = db.table("student_user_link").select("student_id").eq("user_id", user_id).limit(1).execute().data or []
     enrollment = []
@@ -29,8 +41,8 @@ def accessible_class_ids(user_id: str, is_principal: bool = False) -> list[str]:
     return list(dict.fromkeys([row["class_id"] for row in scope + enrollment]))
 
 
-def require_communication_access(user_id: str, class_id: str, is_principal: bool = False) -> None:
-    if class_id not in accessible_class_ids(user_id, is_principal):
+def require_communication_access(user_id: str, class_id: str, is_principal: bool = False, school_id: str | None = None) -> None:
+    if class_id not in accessible_class_ids(user_id, is_principal, school_id):
         raise HTTPException(status_code=403, detail="Bạn không có quyền xem nội dung của lớp này.")
 
 
@@ -53,18 +65,18 @@ def _has_officer_permission(db, user_id: str, class_id: str, permission: str, po
     )
 
 
-def communication_context(user_id: str, is_principal: bool = False) -> dict:
+def communication_context(user_id: str, is_principal: bool = False, school_id: str | None = None) -> dict:
     db = get_supabase()
-    class_ids = accessible_class_ids(user_id, is_principal)
+    class_ids = accessible_class_ids(user_id, is_principal, school_id)
     classes = []
     if class_ids:
         classes = db.table("classes").select("id,name").in_("id", class_ids).order("name").execute().data or []
     return {"classes": classes}
 
 
-def list_forum(user_id: str, class_id: str, is_principal: bool = False) -> dict:
+def list_forum(user_id: str, class_id: str, is_principal: bool = False, school_id: str | None = None) -> dict:
     db = get_supabase()
-    require_communication_access(user_id, class_id, is_principal)
+    require_communication_access(user_id, class_id, is_principal, school_id)
     homeroom = _is_homeroom(db, user_id, class_id, is_principal)
     can_create = homeroom or _has_officer_permission(
         db, user_id, class_id, "create_forum_posts", ("class_monitor", "vice_monitor_academic")
@@ -82,9 +94,9 @@ def list_forum(user_id: str, class_id: str, is_principal: bool = False) -> dict:
     return {"posts": posts, "can_create": can_create, "can_approve": can_approve, "is_homeroom": homeroom}
 
 
-def create_forum_post(user_id: str, class_id: str, title: str, content: str, is_principal: bool = False) -> dict:
+def create_forum_post(user_id: str, class_id: str, title: str, content: str, is_principal: bool = False, school_id: str | None = None) -> dict:
     db = get_supabase()
-    require_communication_access(user_id, class_id, is_principal)
+    require_communication_access(user_id, class_id, is_principal, school_id)
     clean_title, clean_content = title.strip(), content.strip()
     if not clean_title or not clean_content:
         raise HTTPException(status_code=422, detail="Tiêu đề và nội dung không được để trống.")
@@ -111,9 +123,9 @@ def create_forum_post(user_id: str, class_id: str, title: str, content: str, is_
     return post
 
 
-def review_forum_post(user_id: str, class_id: str, post_id: str, approve: bool, reason: str | None, is_principal: bool = False) -> dict:
+def review_forum_post(user_id: str, class_id: str, post_id: str, approve: bool, reason: str | None, is_principal: bool = False, school_id: str | None = None) -> dict:
     db = get_supabase()
-    require_communication_access(user_id, class_id, is_principal)
+    require_communication_access(user_id, class_id, is_principal, school_id)
     if not _is_homeroom(db, user_id, class_id, is_principal):
         rows = _require_permission(db, user_id, class_id, "approve_forum_posts")
         if not any(row["position"] == "class_monitor" for row in rows):
@@ -135,9 +147,9 @@ def review_forum_post(user_id: str, class_id: str, post_id: str, approve: bool, 
     return after
 
 
-def list_feedback(user_id: str, class_id: str, is_principal: bool = False) -> dict:
+def list_feedback(user_id: str, class_id: str, is_principal: bool = False, school_id: str | None = None) -> dict:
     db = get_supabase()
-    require_communication_access(user_id, class_id, is_principal)
+    require_communication_access(user_id, class_id, is_principal, school_id)
     homeroom = _is_homeroom(db, user_id, class_id, is_principal)
     rows = (
         db.table("anonymous_class_feedback")
@@ -180,8 +192,9 @@ def create_feedback(user_id: str, class_id: str, content: str) -> dict:
     return {key: value for key, value in row.items() if key != "author_id"}
 
 
-def review_feedback(user_id: str, class_id: str, feedback_id: str, approve: bool, is_principal: bool = False) -> dict:
+def review_feedback(user_id: str, class_id: str, feedback_id: str, approve: bool, is_principal: bool = False, school_id: str | None = None) -> dict:
     db = get_supabase()
+    require_communication_access(user_id, class_id, is_principal, school_id)
     if not _is_homeroom(db, user_id, class_id, is_principal):
         raise HTTPException(status_code=403, detail="Chỉ GVCN được duyệt góp ý.")
     found = db.table("anonymous_class_feedback").select("*").eq("id", feedback_id).eq("class_id", class_id).limit(1).execute().data or []
@@ -202,9 +215,9 @@ def review_feedback(user_id: str, class_id: str, feedback_id: str, approve: bool
     return {key: value for key, value in after.items() if key not in ("author_id", "responded_by")}
 
 
-def unread_counts(user_id: str, is_principal: bool = False, class_id: str | None = None) -> dict:
+def unread_counts(user_id: str, is_principal: bool = False, class_id: str | None = None, school_id: str | None = None) -> dict:
     db = get_supabase()
-    class_ids = accessible_class_ids(user_id, is_principal)
+    class_ids = accessible_class_ids(user_id, is_principal, school_id)
     if class_id:
         if class_id not in class_ids:
             raise HTTPException(status_code=403, detail="Bạn không có quyền xem nội dung của lớp này.")
@@ -246,8 +259,8 @@ def unread_counts(user_id: str, is_principal: bool = False, class_id: str | None
     return {"forum": count_unread("forum", visible_forum), "feedback": count_unread("feedback", visible_feedback)}
 
 
-def mark_read(user_id: str, class_id: str, content_type: str, content_ids: list[str], is_principal: bool = False) -> dict:
-    require_communication_access(user_id, class_id, is_principal)
+def mark_read(user_id: str, class_id: str, content_type: str, content_ids: list[str], is_principal: bool = False, school_id: str | None = None) -> dict:
+    require_communication_access(user_id, class_id, is_principal, school_id)
     if content_type not in ("forum", "feedback"):
         raise HTTPException(status_code=422, detail="Loại nội dung không hợp lệ.")
     db = get_supabase()

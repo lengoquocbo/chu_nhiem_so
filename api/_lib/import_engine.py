@@ -157,6 +157,10 @@ def confirm_import(rows: list[dict], class_id: str, school_year_id: str, actor_i
     được phép gửi lên confirm). Server VẪN re-validate cơ bản (không tin frontend).
     """
     supabase = get_supabase()
+    year_rows = supabase.table("school_years").select("school_id").eq("id", school_year_id).limit(1).execute().data or []
+    if not year_rows:
+        raise HTTPException(status_code=404, detail="Không tìm thấy năm học của lớp.")
+    school_id = year_rows[0]["school_id"]
     created, failed = [], []
 
     for row in rows:
@@ -180,6 +184,7 @@ def confirm_import(rows: list[dict], class_id: str, school_year_id: str, actor_i
                 supabase.table("students")
                 .insert(
                     {
+                        "school_id": school_id,
                         "full_name": full_name,
                         "gender": row.get("gender"),
                         "date_of_birth": dob,

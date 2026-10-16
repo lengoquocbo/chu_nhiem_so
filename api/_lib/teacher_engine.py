@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from .supabase_client import get_supabase
 
 
-def subject_teacher_context(teacher_id: str | None) -> dict:
+def subject_teacher_context(teacher_id: str | None, school_id: str | None = None) -> dict:
     """Các lớp/môn mà GVBM được phân công, tách rõ theo năm học và học kỳ."""
     db = get_supabase()
     assignment_query = (
@@ -11,6 +11,17 @@ def subject_teacher_context(teacher_id: str | None) -> dict:
         .select("id,class_id,subject_id,class_academic_term_id,status")
         .eq("status", "active")
     )
+    if not school_id:
+        return {"scopes": []}
+    years_in_school = db.table("school_years").select("id").eq("school_id", school_id).execute().data or []
+    year_ids_in_school = [row["id"] for row in years_in_school]
+    if not year_ids_in_school:
+        return {"scopes": []}
+    classes_in_school = db.table("classes").select("id").in_("school_year_id", year_ids_in_school).execute().data or []
+    class_ids_in_school = [row["id"] for row in classes_in_school]
+    if not class_ids_in_school:
+        return {"scopes": []}
+    assignment_query = assignment_query.in_("class_id", class_ids_in_school)
     if teacher_id:
         assignment_query = assignment_query.eq("teacher_id", teacher_id)
     assignments = assignment_query.execute().data or []
@@ -36,7 +47,10 @@ def subject_teacher_context(teacher_id: str | None) -> dict:
     ) if term_ids else []
     term_by_id = {row["id"]: row for row in terms}
     year_ids = list({row["school_year_id"] for row in classes})
-    years = db.table("school_years").select("id,name,status,start_date,end_date").in_("id", year_ids).execute().data or []
+    year_query = db.table("school_years").select("id,name,status,start_date,end_date,school_id").in_("id", year_ids)
+    if school_id:
+        year_query = year_query.eq("school_id", school_id)
+    years = year_query.execute().data or []
     year_by_id = {row["id"]: row for row in years}
 
     scopes = []
@@ -73,7 +87,7 @@ def subject_teacher_context(teacher_id: str | None) -> dict:
     return {"scopes": scopes}
 
 
-def join_class_by_code(class_code: str, subject_id: str, teacher_id: str) -> dict:
+def join_class_by_code(class_code: str, subject_id: str, teacher_id: str, school_id: str) -> dict:
     supabase = get_supabase()
     normalized_code = class_code.strip().upper()
     if not normalized_code:
@@ -88,6 +102,9 @@ def join_class_by_code(class_code: str, subject_id: str, teacher_id: str) -> dic
         raise HTTPException(status_code=404, detail="Không tìm thấy môn học.")
 
     class_row = class_resp.data[0]
+    year_rows = supabase.table("school_years").select("school_id").eq("id", class_row["school_year_id"]).limit(1).execute().data or []
+    if not year_rows or year_rows[0]["school_id"] != school_id:
+        raise HTTPException(status_code=403, detail="Mã lớp không thuộc trường của giáo viên.")
     class_terms = (
         supabase.table("class_academic_terms")
         .select("id,academic_term_id,status,academic_terms!inner(name,status,school_year_id)")

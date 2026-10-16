@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 const ROLE_DESTINATIONS: { role: string; href: string }[] = [
+  { role: "system_admin", href: "/system" },
   { role: "principal", href: "/admin" },
   { role: "homeroom_teacher", href: "/homeroom" },
   { role: "subject_teacher", href: "/teacher" },
